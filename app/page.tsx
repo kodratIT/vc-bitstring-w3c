@@ -147,7 +147,7 @@ export default function HomePage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl('/api/state'));
+      const response = await fetch(apiUrl('/api/state'), { cache: 'no-store' });
       if (!response.ok) {
         throw new Error('Gagal memuat ringkasan status.');
       }

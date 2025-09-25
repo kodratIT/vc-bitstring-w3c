@@ -5,5 +5,12 @@ import { getSummary } from '@/lib/simulator';
 export const runtime = 'nodejs';
 
 export async function GET(): Promise<NextResponse> {
-  return NextResponse.json(await getSummary());
+  const data = await getSummary();
+  return NextResponse.json(data, {
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    },
+  });
 }
