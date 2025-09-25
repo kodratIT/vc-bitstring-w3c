@@ -94,6 +94,12 @@ export default function HomePage(): JSX.Element {
   const [statusPurpose, setStatusPurpose] = useState<StatusPurpose>('revocation');
   const [statusMessagesInput, setStatusMessagesInput] = useState(DEFAULT_STATUS_MESSAGES);
 
+  // Local states for immediate UI updates from API responses
+  const [latestIssuance, setLatestIssuance] = useState<{ credential: Record<string, unknown>; statusListIndex: number; issuedAt: string } | null>(null);
+  const [latestHolderCheck, setLatestHolderCheck] = useState<{ timestamp: string; evaluation: StatusEvaluation; statusListIndex: number } | null>(null);
+  const [latestVerifierCheck, setLatestVerifierCheck] = useState<{ timestamp: string; evaluation: StatusEvaluation; statusListIndex: number } | null>(null);
+  const [latestRevocation, setLatestRevocation] = useState<{ timestamp: string; evaluation: StatusEvaluation; statusListIndex: number; reason?: string } | null>(null);
+
   const [holderId, setHolderId] = useState('did:example:holder');
   const [holderName, setHolderName] = useState('Alice Holder');
   const [revokeReason, setRevokeReason] = useState('');
@@ -253,6 +259,7 @@ export default function HomePage(): JSX.Element {
   }, [fetchSummary, holderId, holderName]);
 
   const holderCheck = useCallback(async () => {
+    console.log('UI - Starting holderCheck');
     setLoading(true);
     setError(null);
     setInfo(null);
@@ -262,9 +269,14 @@ export default function HomePage(): JSX.Element {
         const problem = await response.json();
         throw new Error(problem?.message ?? 'Holder gagal mengecek status.');
       }
+      const holderData = await response.json();
+      setLatestHolderCheck(holderData);
       setInfo('Holder berhasil mengecek status credential.');
+      console.log('UI - Holder check success, calling fetchSummary');
       await fetchSummary();
+      console.log('UI - fetchSummary after holder check completed');
     } catch (err) {
+      console.error('UI - holderCheck error:', err);
       setError(err instanceof Error ? err.message : 'Kesalahan tidak diketahui.');
     } finally {
       setLoading(false);
@@ -272,6 +284,7 @@ export default function HomePage(): JSX.Element {
   }, [fetchSummary]);
 
   const verifierCheck = useCallback(async () => {
+    console.log('UI - Starting verifierCheck');
     setLoading(true);
     setError(null);
     setInfo(null);
@@ -281,9 +294,14 @@ export default function HomePage(): JSX.Element {
         const problem = await response.json();
         throw new Error(problem?.message ?? 'Verifier gagal memvalidasi credential.');
       }
+      const verifierData = await response.json();
+      setLatestVerifierCheck(verifierData);
       setInfo('Verifier telah memverifikasi credential.');
+      console.log('UI - Verifier check success, calling fetchSummary');
       await fetchSummary();
+      console.log('UI - fetchSummary after verifier check completed');
     } catch (err) {
+      console.error('UI - verifierCheck error:', err);
       setError(err instanceof Error ? err.message : 'Kesalahan tidak diketahui.');
     } finally {
       setLoading(false);
@@ -291,6 +309,7 @@ export default function HomePage(): JSX.Element {
   }, [fetchSummary]);
 
   const revokeCredential = useCallback(async () => {
+    console.log('UI - Starting revokeCredential');
     setLoading(true);
     setError(null);
     setInfo(null);
@@ -304,9 +323,14 @@ export default function HomePage(): JSX.Element {
         const problem = await response.json();
         throw new Error(problem?.message ?? 'Gagal mencabut credential.');
       }
+      const revokeData = await response.json();
+      setLatestRevocation(revokeData);
       setInfo('Credential dicabut. Status list diperbarui.');
+      console.log('UI - Revoke success, calling fetchSummary');
       await fetchSummary();
+      console.log('UI - fetchSummary after revoke completed');
     } catch (err) {
+      console.error('UI - revokeCredential error:', err);
       setError(err instanceof Error ? err.message : 'Kesalahan tidak diketahui.');
     } finally {
       setLoading(false);
@@ -500,8 +524,8 @@ export default function HomePage(): JSX.Element {
           </div>
           <div>
             <h3>Credential Terakhir</h3>
-            <p className="muted">Diterbitkan: {formatTimestamp(simulation?.credentialIssuedAt)}</p>
-            <JsonView key={simulation?.credentialIssuedAt || 'no-credential'} data={simulation?.credential} />
+            <p className="muted">Diterbitkan: {formatTimestamp(latestIssuance?.issuedAt || summary?.simulation?.credentialIssuedAt)}</p>
+            <JsonView key={latestIssuance?.issuedAt || summary?.simulation?.credentialIssuedAt || 'no-credential'} data={latestIssuance?.credential || summary?.simulation?.credential} />
           </div>
         </div>
       </section>
@@ -517,18 +541,18 @@ export default function HomePage(): JSX.Element {
           <div>
             <h3>Hasil Holder</h3>
             <p className="muted">
-              Terakhir dicek: {formatTimestamp(simulation?.holderCheck?.timestamp)}
+              Terakhir dicek: {formatTimestamp(latestHolderCheck?.timestamp || summary?.simulation?.holderCheck?.timestamp)}
             </p>
-            {simulation?.holderCheck ? (
+            {(latestHolderCheck || summary?.simulation?.holderCheck) ? (
               <ul className="status-summary">
                 <li>
-                  Status: <strong>{simulation.holderCheck.evaluation.status}</strong>
+                  Status: <strong>{(latestHolderCheck || summary?.simulation?.holderCheck)?.evaluation?.status}</strong>
                 </li>
                 <li>
-                  Valid: <strong>{simulation.holderCheck.evaluation.valid ? 'Ya' : 'Tidak'}</strong>
+                  Valid: <strong>{(latestHolderCheck || summary?.simulation?.holderCheck)?.evaluation?.valid ? 'Ya' : 'Tidak'}</strong>
                 </li>
-                {simulation.holderCheck.evaluation.message && (
-                  <li>Pesan: {simulation.holderCheck.evaluation.message}</li>
+                {(latestHolderCheck || summary?.simulation?.holderCheck)?.evaluation?.message && (
+                  <li>Pesan: {(latestHolderCheck || summary?.simulation?.holderCheck)?.evaluation?.message}</li>
                 )}
               </ul>
             ) : (
@@ -549,18 +573,18 @@ export default function HomePage(): JSX.Element {
           <div>
             <h3>Hasil Verifikasi</h3>
             <p className="muted">
-              Terakhir diverifikasi: {formatTimestamp(simulation?.verifierCheck?.timestamp)}
+              Terakhir diverifikasi: {formatTimestamp(latestVerifierCheck?.timestamp || summary?.simulation?.verifierCheck?.timestamp)}
             </p>
-            {simulation?.verifierCheck ? (
+            {(latestVerifierCheck || summary?.simulation?.verifierCheck) ? (
               <ul className="status-summary">
                 <li>
-                  Status: <strong>{simulation.verifierCheck.evaluation.status}</strong>
+                  Status: <strong>{(latestVerifierCheck || summary?.simulation?.verifierCheck)?.evaluation?.status}</strong>
                 </li>
                 <li>
-                  Valid: <strong>{simulation.verifierCheck.evaluation.valid ? 'Ya' : 'Tidak'}</strong>
+                  Valid: <strong>{(latestVerifierCheck || summary?.simulation?.verifierCheck)?.evaluation?.valid ? 'Ya' : 'Tidak'}</strong>
                 </li>
-                {simulation.verifierCheck.evaluation.message && (
-                  <li>Pesan: {simulation.verifierCheck.evaluation.message}</li>
+                {(latestVerifierCheck || summary?.simulation?.verifierCheck)?.evaluation?.message && (
+                  <li>Pesan: {(latestVerifierCheck || summary?.simulation?.verifierCheck)?.evaluation?.message}</li>
                 )}
               </ul>
             ) : (
@@ -588,19 +612,19 @@ export default function HomePage(): JSX.Element {
           <div>
             <h3>Status Setelah Pencabutan</h3>
             <p className="muted">
-              Dicabut: {formatTimestamp(simulation?.revocation?.timestamp)}
+              Dicabut: {formatTimestamp(latestRevocation?.timestamp || summary?.simulation?.revocation?.timestamp)}
             </p>
-            {simulation?.revocation ? (
+            {(latestRevocation || summary?.simulation?.revocation) ? (
               <ul className="status-summary">
                 <li>
-                  Status: <strong>{simulation.revocation.evaluation.status}</strong>
+                  Status: <strong>{(latestRevocation || summary?.simulation?.revocation)?.evaluation?.status}</strong>
                 </li>
                 <li>
-                  Valid: <strong>{simulation.revocation.evaluation.valid ? 'Ya' : 'Tidak'}</strong>
+                  Valid: <strong>{(latestRevocation || summary?.simulation?.revocation)?.evaluation?.valid ? 'Ya' : 'Tidak'}</strong>
                 </li>
-                {simulation.revocation.reason && <li>Alasan: {simulation.revocation.reason}</li>}
-                {simulation.revocation.evaluation.message && (
-                  <li>Pesan: {simulation.revocation.evaluation.message}</li>
+                {(latestRevocation || summary?.simulation?.revocation)?.reason && <li>Alasan: {(latestRevocation || summary?.simulation?.revocation)?.reason}</li>}
+                {(latestRevocation || summary?.simulation?.revocation)?.evaluation?.message && (
+                  <li>Pesan: {(latestRevocation || summary?.simulation?.revocation)?.evaluation?.message}</li>
                 )}
               </ul>
             ) : (
@@ -674,7 +698,7 @@ export default function HomePage(): JSX.Element {
               Cek Status
             </button>
             {statusResult && (
-              <div className="status-output">
+              <div key={statusResult.timestamp || Date.now()} className="status-output">
                 <p>
                   Index <strong>{statusResult.index}</strong> → status <strong>{statusResult.status}</strong>{' '}
                   ({statusResult.valid ? 'VALID' : 'TIDAK VALID'})
