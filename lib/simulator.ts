@@ -173,6 +173,9 @@ function deserializeAppState(serialized: SerializedAppState): AppState {
 }
 
 function deserializeStore(json: string): SimulatorStore {
+  if (typeof json !== 'string') {
+    throw new Error('Invalid KV data: expected string');
+  }
   const obj: SerializedStore = JSON.parse(json);
   const state = deserializeAppState(obj.state);
   return {
@@ -194,7 +197,7 @@ async function getStore(): Promise<SimulatorStore> {
   let store: SimulatorStore;
   if (useKV) {
     const json = await kv.get<string>(KV_KEY);
-    if (json === null) {
+    if (json === null || typeof json !== 'string') {
       store = {
         state: createInitialState(),
         events: [],
@@ -202,10 +205,24 @@ async function getStore(): Promise<SimulatorStore> {
         nextCredentialIndex: 0,
       };
       await saveStore(store);
-      logEvent(store, 'info', 'Simulator awal siap.', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
+      logEvent(store, 'info', 'Simulator awal siap (KV reset due to invalid data).', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
       await saveStore(store);
     } else {
-      store = deserializeStore(json);
+      try {
+        store = deserializeStore(json);
+      } catch (error) {
+        console.error('Failed to deserialize KV store:', error);
+        // Fallback to initial state
+        store = {
+          state: createInitialState(),
+          events: [],
+          eventCounter: 0,
+          nextCredentialIndex: 0,
+        };
+        await saveStore(store);
+        logEvent(store, 'info', 'Simulator awal siap (KV fallback due to parse error).', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
+        await saveStore(store);
+      }
     }
   } else {
     store = {
