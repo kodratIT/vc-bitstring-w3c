@@ -193,7 +193,7 @@ async function getStore(): Promise<SimulatorStore> {
   }
 
   const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
-  console.log('getStore - Using KV:', useKV);
+  console.log('getStore - Using KV:', !!useKV);
 
   let store: SimulatorStore;
   if (useKV) {
@@ -241,7 +241,7 @@ async function getStore(): Promise<SimulatorStore> {
 
 async function saveStore(store: SimulatorStore): Promise<void> {
   const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
-  console.log('saveStore - Using KV:', useKV);
+  console.log('saveStore - Using KV:', !!useKV);
   if (!useKV) return;
 
   const serialized = JSON.stringify(serializeStore(store));
@@ -300,6 +300,7 @@ function evaluateIndex(store: SimulatorStore, index: number): StatusEvaluation {
 export async function getSummary(): Promise<StatusSummary> {
   const store = await getStore();
   const { state } = store;
+  console.log('getSummary - Simulation credential loaded:', !!state.simulation.credential);
   const credentialSubject = state.credential.credentialSubject;
 
   const result: StatusSummary = {
