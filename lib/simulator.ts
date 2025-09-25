@@ -164,12 +164,14 @@ function deserializeAppState(serialized: SerializedAppState): AppState {
     statusSize,
     entryCount,
   });
-  return {
+  const state = {
     list,
     credential,
     flaggedIndices: new Set(serialized.flaggedIndices),
     simulation: serialized.simulation,
   };
+  console.log('deserializeAppState - Simulation in state:', !!state.simulation.credential);
+  return state;
 }
 
 function deserializeStore(json: string): SimulatorStore {
@@ -197,8 +199,9 @@ async function getStore(): Promise<SimulatorStore> {
 
   let store: SimulatorStore;
   if (useKV) {
-    const json = await kv.get<string>(KV_KEY);
-    if (json === null || typeof json !== 'string') {
+    const raw = await kv.get(KV_KEY);
+    console.log('getStore - Raw KV value type:', typeof raw, 'isNull:', raw === null, 'preview:', raw ? (typeof raw === 'string' ? raw.substring(0, 50) + '...' : 'object') : 'null');
+    if (raw === null) {
       store = {
         state: createInitialState(),
         events: [],
@@ -206,13 +209,29 @@ async function getStore(): Promise<SimulatorStore> {
         nextCredentialIndex: 0,
       };
       await saveStore(store);
-      logEvent(store, 'info', 'Simulator awal siap (KV reset due to invalid data).', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
+      logEvent(store, 'info', 'Simulator awal siap.', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
       await saveStore(store);
     } else {
       try {
-        store = deserializeStore(json);
+        let parsed: SerializedStore;
+        if (typeof raw === 'string') {
+          parsed = JSON.parse(raw);
+        } else if (typeof raw === 'object' && raw !== null) {
+          parsed = raw as SerializedStore;
+        } else {
+          throw new Error(`Unexpected KV value type: ${typeof raw}`);
+        }
+        const state = deserializeAppState(parsed.state);
+        store = {
+          state,
+          events: parsed.events || [],
+          eventCounter: parsed.eventCounter || 0,
+          nextCredentialIndex: parsed.nextCredentialIndex || 0,
+        };
+        console.log('getStore - Deserialized simulation credential:', !!store.state.simulation.credential);
       } catch (error) {
         console.error('Failed to deserialize KV store:', error);
+        console.log('getStore - Fallback to initial state due to KV parse error');
         // Fallback to initial state
         store = {
           state: createInitialState(),
@@ -301,6 +320,7 @@ export async function getSummary(): Promise<StatusSummary> {
   const store = await getStore();
   const { state } = store;
   console.log('getSummary - Simulation credential loaded:', !!state.simulation.credential);
+  console.log('getSummary - Full simulation state:', state.simulation);
   const credentialSubject = state.credential.credentialSubject;
 
   const result: StatusSummary = {
