@@ -189,7 +189,7 @@ async function getStore(): Promise<SimulatorStore> {
     return globalContext[STORE_KEY]!;
   }
 
-  const useKV = process.env.VERCEL_KV_REST_API_URL && process.env.VERCEL_KV_REST_API_TOKEN;
+  const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
 
   let store: SimulatorStore;
   if (useKV) {
@@ -222,7 +222,7 @@ async function getStore(): Promise<SimulatorStore> {
 }
 
 async function saveStore(store: SimulatorStore): Promise<void> {
-  const useKV = process.env.VERCEL_KV_REST_API_URL && process.env.VERCEL_KV_REST_API_TOKEN;
+  const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
   if (!useKV) return;
 
   const serialized = JSON.stringify(serializeStore(store));
