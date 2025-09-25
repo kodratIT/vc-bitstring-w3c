@@ -226,6 +226,7 @@ export default function HomePage(): JSX.Element {
   }, [fetchSummary, statusPurpose, statusMessagesInput]);
 
   const issueCredential = useCallback(async () => {
+    console.log('UI - Starting issueCredential');
     setLoading(true);
     setError(null);
     setInfo(null);
@@ -240,8 +241,11 @@ export default function HomePage(): JSX.Element {
         throw new Error(problem?.message ?? 'Gagal menerbitkan credential.');
       }
       setInfo('Credential berhasil diterbitkan dan diberikan ke holder.');
+      console.log('UI - Issuance success, calling fetchSummary');
       await fetchSummary();
+      console.log('UI - fetchSummary after issuance completed');
     } catch (err) {
+      console.error('UI - issueCredential error:', err);
       setError(err instanceof Error ? err.message : 'Kesalahan tidak diketahui.');
     } finally {
       setLoading(false);
@@ -497,7 +501,7 @@ export default function HomePage(): JSX.Element {
           <div>
             <h3>Credential Terakhir</h3>
             <p className="muted">Diterbitkan: {formatTimestamp(simulation?.credentialIssuedAt)}</p>
-            <JsonView data={simulation?.credential} />
+            <JsonView key={simulation?.credentialIssuedAt || 'no-credential'} data={simulation?.credential} />
           </div>
         </div>
       </section>
