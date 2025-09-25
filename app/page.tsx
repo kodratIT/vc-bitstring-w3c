@@ -137,6 +137,7 @@ export default function HomePage(): JSX.Element {
   const simulation = summary?.simulation;
 
   const fetchSummary = useCallback(async () => {
+    console.log('UI - Starting fetchSummary');
     setLoading(true);
     setError(null);
     try {
@@ -145,7 +146,9 @@ export default function HomePage(): JSX.Element {
         throw new Error('Gagal memuat ringkasan status.');
       }
       const data = (await response.json()) as SummaryResponse;
+      console.log('UI - API /api/state response received:', data);
       setSummary(data);
+      console.log('UI - Set summary, simulation credential loaded:', !!data.simulation?.credential);
       setStatusPurpose(data.statusPurpose);
       if (data.statusPurpose === 'message') {
         const serialized = JSON.stringify(data.statusMessages ?? [], null, 2);
@@ -161,6 +164,7 @@ export default function HomePage(): JSX.Element {
         setUpdateValue('1');
       }
     } catch (err) {
+      console.error('UI - fetchSummary error:', err);
       setError(err instanceof Error ? err.message : 'Kesalahan tidak diketahui.');
     } finally {
       setLoading(false);
@@ -168,6 +172,7 @@ export default function HomePage(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    console.log('UI - Initial useEffect calling fetchSummary');
     fetchSummary().catch(() => {
       /* handled */
     });
