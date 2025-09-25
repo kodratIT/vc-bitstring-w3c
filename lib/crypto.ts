@@ -27,9 +27,22 @@ export interface CryptoDetails {
   previewHex: string;
 }
 
-export function getCryptoDetails(): CryptoDetails {
-  const summary = getSummary();
+export async function getCryptoDetails(): Promise<CryptoDetails> {
+  const summary = await getSummary();
   const encodedList = summary.encodedList;
+  if (!encodedList) {
+    return {
+      prefix: '',
+      prefixValid: false,
+      encodedListLength: 0,
+      base64urlPayloadLength: 0,
+      compressedByteLength: 0,
+      uncompressedByteLength: 0,
+      compressionRatio: 0,
+      minimumRequiredUncompressedBytes: MIN_UNCOMPRESSED_BYTE_LENGTH,
+      previewHex: '',
+    };
+  }
   const prefix = encodedList.slice(0, 1);
   const payload = encodedList.slice(1);
   const prefixValid = prefix === MULTIBASE_BASE64URL_PREFIX;

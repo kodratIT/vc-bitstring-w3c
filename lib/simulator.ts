@@ -7,9 +7,11 @@ import {
   createStatusListCredential,
   evaluateStatus,
   syncEncodedList,
+  decodeBitstring,
 } from '@/src/index';
 import type { StatusEvaluation } from '@/src/index';
-import type { StatusMessage, StatusPurpose } from '@/src/types';
+import type { StatusMessage, StatusPurpose, BitstringStatusListCredential } from '@/src/types';
+import { kv } from '@vercel/kv';
 
 interface SimulationRecord {
   credential?: Record<string, unknown>;
@@ -33,6 +35,12 @@ interface AppState {
   list: BitstringStatusList;
   credential: ReturnType<typeof createStatusListCredential>['credential'];
   flaggedIndices: Set<number>;
+  simulation: SimulationRecord;
+}
+
+interface SerializedAppState {
+  credential: Record<string, unknown>;
+  flaggedIndices: number[];
   simulation: SimulationRecord;
 }
 
@@ -65,6 +73,20 @@ export interface StatusSummary {
   events: StatusEvent[];
 }
 
+interface SimulatorStore {
+  state: AppState;
+  events: StatusEvent[];
+  eventCounter: number;
+  nextCredentialIndex: number;
+}
+
+interface SerializedStore {
+  state: SerializedAppState;
+  events: StatusEvent[];
+  eventCounter: number;
+  nextCredentialIndex: number;
+}
+
 const DEFAULT_STATUS_MESSAGES: StatusMessage[] = [
   { status: '0x0', message: 'pending_review' },
   { status: '0x1', message: 'accepted' },
@@ -74,34 +96,12 @@ const DEFAULT_STATUS_MESSAGES: StatusMessage[] = [
 const STATUS_LIST_ID = 'https://example.com/credentials/status-list';
 const STATUS_LIST_LIST_ID = `${STATUS_LIST_ID}#list`;
 const MAX_EVENTS = 200;
-
-interface SimulatorStore {
-  state: AppState;
-  events: StatusEvent[];
-  eventCounter: number;
-  nextCredentialIndex: number;
-}
-
+const KV_KEY = 'vc-bitstring-simulator';
 const STORE_KEY = Symbol.for('vc-bitstring-simulator');
 
 type GlobalSimulator = typeof globalThis & {
   [STORE_KEY]?: SimulatorStore;
 };
-
-function getStore(): SimulatorStore {
-  const globalContext = globalThis as GlobalSimulator;
-  if (!globalContext[STORE_KEY]) {
-    const store: SimulatorStore = {
-      state: createInitialState(),
-      events: [],
-      eventCounter: 0,
-      nextCredentialIndex: 0,
-    };
-    globalContext[STORE_KEY] = store;
-    logEvent(store, 'info', 'Simulator awal siap.', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
-  }
-  return globalContext[STORE_KEY]!;
-}
 
 function createInitialState(options: InitializeOptions = {}): AppState {
   const { statusPurpose = 'revocation', defaultEntryValue, statusMessages } = options;
@@ -134,6 +134,99 @@ function createInitialState(options: InitializeOptions = {}): AppState {
     flaggedIndices,
     simulation: {},
   };
+}
+
+function serializeAppState(state: AppState): SerializedAppState {
+  return {
+    credential: state.credential,
+    flaggedIndices: Array.from(state.flaggedIndices),
+    simulation: state.simulation,
+  };
+}
+
+function serializeStore(store: SimulatorStore): SerializedStore {
+  return {
+    state: serializeAppState(store.state),
+    events: store.events,
+    eventCounter: store.eventCounter,
+    nextCredentialIndex: store.nextCredentialIndex,
+  };
+}
+
+function deserializeAppState(serialized: SerializedAppState): AppState {
+  const credential: BitstringStatusListCredential = serialized.credential as BitstringStatusListCredential;
+  const credentialSubject = credential.credentialSubject;
+  const encodedBytes = decodeBitstring(credentialSubject.encodedList);
+  const statusSize = credentialSubject.statusSize ?? 1;
+  const entryCount = Math.floor((encodedBytes.length * 8) / statusSize);
+  const list = new BitstringStatusList({
+    source: encodedBytes,
+    statusSize,
+    entryCount,
+  });
+  return {
+    list,
+    credential,
+    flaggedIndices: new Set(serialized.flaggedIndices),
+    simulation: serialized.simulation,
+  };
+}
+
+function deserializeStore(json: string): SimulatorStore {
+  const obj: SerializedStore = JSON.parse(json);
+  const state = deserializeAppState(obj.state);
+  return {
+    state,
+    events: obj.events,
+    eventCounter: obj.eventCounter,
+    nextCredentialIndex: obj.nextCredentialIndex,
+  };
+}
+
+async function getStore(): Promise<SimulatorStore> {
+  const globalContext = globalThis as GlobalSimulator;
+  if (globalContext[STORE_KEY]) {
+    return globalContext[STORE_KEY]!;
+  }
+
+  const useKV = process.env.VERCEL_KV_REST_API_URL && process.env.VERCEL_KV_REST_API_TOKEN;
+
+  let store: SimulatorStore;
+  if (useKV) {
+    const json = await kv.get<string>(KV_KEY);
+    if (json === null) {
+      store = {
+        state: createInitialState(),
+        events: [],
+        eventCounter: 0,
+        nextCredentialIndex: 0,
+      };
+      await saveStore(store);
+      logEvent(store, 'info', 'Simulator awal siap.', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
+      await saveStore(store);
+    } else {
+      store = deserializeStore(json);
+    }
+  } else {
+    store = {
+      state: createInitialState(),
+      events: [],
+      eventCounter: 0,
+      nextCredentialIndex: 0,
+    };
+    logEvent(store, 'info', 'Simulator awal siap (in-memory mode).', { statusPurpose: store.state.credential.credentialSubject.statusPurpose });
+  }
+
+  globalContext[STORE_KEY] = store;
+  return store;
+}
+
+async function saveStore(store: SimulatorStore): Promise<void> {
+  const useKV = process.env.VERCEL_KV_REST_API_URL && process.env.VERCEL_KV_REST_API_TOKEN;
+  if (!useKV) return;
+
+  const serialized = JSON.stringify(serializeStore(store));
+  await kv.set(KV_KEY, serialized);
 }
 
 function logEvent(store: SimulatorStore, type: StatusEvent['type'], message: string, details?: Record<string, unknown>): void {
@@ -185,12 +278,12 @@ function evaluateIndex(store: SimulatorStore, index: number): StatusEvaluation {
   });
 }
 
-export function getSummary(): StatusSummary {
-  const store = getStore();
+export async function getSummary(): Promise<StatusSummary> {
+  const store = await getStore();
   const { state } = store;
   const credentialSubject = state.credential.credentialSubject;
 
-  return {
+  const result: StatusSummary = {
     credentialId: state.credential.id,
     statusPurpose: credentialSubject.statusPurpose,
     entryCount: state.list.entryCount,
@@ -204,14 +297,15 @@ export function getSummary(): StatusSummary {
     simulation: state.simulation,
     events: [...store.events].reverse().slice(0, 50),
   };
+  return result;
 }
 
-export function resetStatusList(options: { statusPurpose?: StatusPurpose; statusMessages?: unknown } = {}): {
+export async function resetStatusList(options: { statusPurpose?: StatusPurpose; statusMessages?: unknown } = {}): Promise<{
   message: string;
   statusPurpose: StatusPurpose;
   statusMessages: StatusMessage[];
-} {
-  const store = getStore();
+}> {
+  const store = await getStore();
   const normalizedMessages = normalizeStatusMessages(options.statusMessages);
 
   store.state = createInitialState({
@@ -225,6 +319,7 @@ export function resetStatusList(options: { statusPurpose?: StatusPurpose; status
     statusPurpose: store.state.credential.credentialSubject.statusPurpose,
     statusMessages: store.state.credential.credentialSubject.statusMessages,
   });
+  await saveStore(store);
 
   return {
     message: 'Status list reset.',
@@ -233,11 +328,11 @@ export function resetStatusList(options: { statusPurpose?: StatusPurpose; status
   };
 }
 
-export function updateStatusList(updates: { index: number; value: number }[]): {
+export async function updateStatusList(updates: { index: number; value: number }[]): Promise<{
   message: string;
   flaggedCount: number;
-} {
-  const store = getStore();
+}> {
+  const store = await getStore();
   if (!Array.isArray(updates) || updates.length === 0) {
     throw new StatusListError('MALFORMED_VALUE_ERROR', 'updates array dibutuhkan.');
   }
@@ -253,6 +348,7 @@ export function updateStatusList(updates: { index: number; value: number }[]): {
   syncEncodedList(store.state.credential, store.state.list);
 
   logEvent(store, 'update', `Menerapkan ${updates.length} pembaruan status.`, { updates });
+  await saveStore(store);
 
   return {
     message: 'Updates berhasil diterapkan.',
@@ -260,13 +356,14 @@ export function updateStatusList(updates: { index: number; value: number }[]): {
   };
 }
 
-export function checkStatus(index: number): { index: number } & StatusEvaluation {
-  const store = getStore();
+export async function checkStatus(index: number): Promise<{ index: number } & StatusEvaluation> {
+  const store = await getStore();
   if (!Number.isInteger(index) || index < 0) {
     throw new StatusListError('MALFORMED_VALUE_ERROR', 'Index harus bilangan bulat non-negatif.');
   }
   const evaluation = evaluateIndex(store, index);
   logEvent(store, 'evaluate', `Verifier mengecek index ${index}.`, { ...evaluation });
+  await saveStore(store);
   return { index, ...evaluation };
 }
 
@@ -278,12 +375,12 @@ function getSimulationContext(store: SimulatorStore): { index: number; credentia
   return { credential: simulation.credential, index: simulation.statusListIndex };
 }
 
-export function simulateIssuance(payload: { holderId?: string; subjectName?: string }): {
+export async function simulateIssuance(payload: { holderId?: string; subjectName?: string }): Promise<{
   credential: Record<string, unknown>;
   statusListIndex: number;
   issuedAt: string;
-} {
-  const store = getStore();
+}> {
+  const store = await getStore();
   const holderId = payload.holderId ?? 'did:example:holder';
   const subjectName = payload.subjectName ?? 'Alice Holder';
 
@@ -335,49 +432,52 @@ export function simulateIssuance(payload: { holderId?: string; subjectName?: str
     holderId,
     subjectName,
   });
+  await saveStore(store);
 
   return { credential, statusListIndex: index, issuedAt };
 }
 
-export function simulateHolderCheck(): {
+export async function simulateHolderCheck(): Promise<{
   timestamp: string;
   evaluation: StatusEvaluation;
   statusListIndex: number;
-} {
-  const store = getStore();
+}> {
+  const store = await getStore();
   const { index } = getSimulationContext(store);
   const evaluation = evaluateIndex(store, index);
   const timestamp = new Date().toISOString();
 
   store.state.simulation.holderCheck = { timestamp, evaluation };
   logEvent(store, 'evaluate', 'Holder memeriksa status credential.', { statusListIndex: index, ...evaluation });
+  await saveStore(store);
 
   return { timestamp, evaluation, statusListIndex: index };
 }
 
-export function simulateVerifierCheck(): {
+export async function simulateVerifierCheck(): Promise<{
   timestamp: string;
   evaluation: StatusEvaluation;
   statusListIndex: number;
-} {
-  const store = getStore();
+}> {
+  const store = await getStore();
   const { index } = getSimulationContext(store);
   const evaluation = evaluateIndex(store, index);
   const timestamp = new Date().toISOString();
 
   store.state.simulation.verifierCheck = { timestamp, evaluation };
   logEvent(store, 'evaluate', 'Verifier memvalidasi credential.', { statusListIndex: index, ...evaluation });
+  await saveStore(store);
 
   return { timestamp, evaluation, statusListIndex: index };
 }
 
-export function simulateRevocation(payload: { reason?: string }): {
+export async function simulateRevocation(payload: { reason?: string }): Promise<{
   timestamp: string;
   evaluation: StatusEvaluation;
   statusListIndex: number;
   reason?: string;
-} {
-  const store = getStore();
+}> {
+  const store = await getStore();
   const { index } = getSimulationContext(store);
   const { reason } = payload;
 
@@ -390,6 +490,7 @@ export function simulateRevocation(payload: { reason?: string }): {
 
   store.state.simulation.revocation = { timestamp, reason, evaluation };
   logEvent(store, 'update', 'Issuer mencabut credential.', { statusListIndex: index, reason, ...evaluation });
+  await saveStore(store);
 
   return { timestamp, evaluation, statusListIndex: index, reason };
 }
@@ -402,8 +503,8 @@ export function normalizeStatusMessagesInput(input: unknown): StatusMessage[] | 
  * Return raw status values for a contiguous range without emitting log events.
  * Useful for UI visualization (BitGrid) to avoid polluting the timeline.
  */
-export function getStatusesRange(start: number, count: number): { index: number; status: number }[] {
-  const store = getStore();
+export async function getStatusesRange(start: number, count: number): Promise<{ index: number; status: number }[]> {
+  const store = await getStore();
   if (!Number.isInteger(start) || start < 0) {
     throw new StatusListError('MALFORMED_VALUE_ERROR', 'start must be a non-negative integer.');
   }

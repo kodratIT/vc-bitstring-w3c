@@ -4,5 +4,5 @@ import { simulateHolderCheck } from '@/lib/simulator';
 export const runtime = 'nodejs';
 
 export async function POST() {
-  return handleJson(() => simulateHolderCheck());
+  return handleJson(async () => await simulateHolderCheck());
 }

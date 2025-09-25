@@ -4,5 +4,5 @@ import { getCryptoDetails } from '@/lib/crypto';
 export const runtime = 'nodejs';
 
 export async function GET() {
-  return handleJson(() => getCryptoDetails());
+  return handleJson(async () => await getCryptoDetails());
 }

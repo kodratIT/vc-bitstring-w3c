@@ -5,5 +5,5 @@ export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
-  return handleJson(() => updateStatusList(body.updates));
+  return handleJson(async () => await updateStatusList(body.updates));
 }

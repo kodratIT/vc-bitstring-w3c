@@ -7,5 +7,5 @@ export async function GET(
   _request: Request,
   { params }: { params: { index: string } }
 ) {
-  return handleJson(() => checkStatus(Number.parseInt(params.index, 10)));
+  return handleJson(async () => await checkStatus(Number.parseInt(params.index, 10)));
 }

@@ -12,5 +12,5 @@ export async function GET(request: NextRequest) {
   const start = Number.parseInt(startParam, 10);
   const count = Number.parseInt(countParam, 10);
 
-  return handleJson(() => getStatusesRange(start, count));
+  return handleJson(async () => await getStatusesRange(start, count));
 }
