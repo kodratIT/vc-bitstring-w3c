@@ -193,6 +193,7 @@ async function getStore(): Promise<SimulatorStore> {
   }
 
   const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+  console.log('getStore - Using KV:', useKV);
 
   let store: SimulatorStore;
   if (useKV) {
@@ -240,6 +241,7 @@ async function getStore(): Promise<SimulatorStore> {
 
 async function saveStore(store: SimulatorStore): Promise<void> {
   const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+  console.log('saveStore - Using KV:', useKV);
   if (!useKV) return;
 
   const serialized = JSON.stringify(serializeStore(store));
